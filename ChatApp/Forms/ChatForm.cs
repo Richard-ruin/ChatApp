@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using ChatApp.Models;
@@ -175,43 +176,119 @@ namespace ChatApp.Forms
 
         private void AppendMessageToChat(string username, string content, DateTime sentAt, bool isOwnMessage)
         {
-            string timeStr = sentAt.ToString("HH:mm:ss");
-            string alignment = isOwnMessage ? "right" : "left";
-            string color = isOwnMessage ? "#DCF8C6" : "#FFFFFF";
+            try
+            {
+                // Check if wbChat is null or if its Document or Body is null
+                if (wbChat == null || wbChat.Document == null || wbChat.Document.Body == null)
+                {
+                    // Initialize with empty HTML if WebBrowser isn't ready
+                    InitializeChat();
 
-            string messageHtml = $"<div style='text-align: {alignment}; margin: 5px;'>" +
-                                 $"<div style='display: inline-block; background-color: {color}; " +
-                                 $"border-radius: 10px; padding: 8px; max-width: 80%; text-align: left;'>" +
-                                 $"<div style='font-weight: bold;'>{username}</div>" +
-                                 $"<div>{content}</div>" +
-                                 $"<div style='font-size: 0.8em; color: #888; text-align: right;'>{timeStr}</div>" +
-                                 $"</div></div>";
+                    // If it's still not ready, delay and try again
+                    if (wbChat == null || wbChat.Document == null || wbChat.Document.Body == null)
+                    {
+                        // Log the issue and return for now
+                        Console.WriteLine("WebBrowser document not ready. Message not appended.");
+                        return;
+                    }
+                }
 
-            wbChat.DocumentText = wbChat.DocumentText.Replace("</body>", messageHtml + "</body>");
+                string timeStr = sentAt.ToString("HH:mm:ss");
+                string alignment = isOwnMessage ? "right" : "left";
+                string color = isOwnMessage ? "#DCF8C6" : "#FFFFFF";
 
-            // Scroll to bottom
-            wbChat.Document.Window.ScrollTo(0, wbChat.Document.Body.ScrollRectangle.Height);
+                string messageHtml = $"<div style='text-align: {alignment}; margin: 5px;'>" +
+                                     $"<div style='display: inline-block; background-color: {color}; " +
+                                     $"border-radius: 10px; padding: 8px; max-width: 80%; text-align: left;'>" +
+                                     $"<div style='font-weight: bold;'>{username}</div>" +
+                                     $"<div>{content}</div>" +
+                                     $"<div style='font-size: 0.8em; color: #888; text-align: right;'>{timeStr}</div>" +
+                                     $"</div></div>";
+
+                // Make sure the document body exists before trying to modify it
+                if (wbChat.Document != null && wbChat.Document.Body != null)
+                {
+                    // Get the current HTML content and append the new message
+                    string currentHtml = wbChat.DocumentText;
+
+                    // Prevent null reference by checking if DocumentText is null or empty
+                    if (string.IsNullOrEmpty(currentHtml) || !currentHtml.Contains("</body>"))
+                    {
+                        InitializeChat(); // Reinitialize chat if HTML is not valid
+                        currentHtml = wbChat.DocumentText;
+                    }
+
+                    wbChat.DocumentText = currentHtml.Replace("</body>", messageHtml + "</body>");
+
+                    // Scroll to bottom after a short delay to ensure content is loaded
+                    System.Windows.Forms.Timer scrollTimer = new System.Windows.Forms.Timer
+                    {
+                        Interval = 100,
+                        Enabled = true
+                    };
+
+                    scrollTimer.Tick += (sender, e) =>
+                    {
+                        try
+                        {
+                            if (wbChat.Document != null && wbChat.Document.Window != null &&
+                                wbChat.Document.Body != null)
+                            {
+                                wbChat.Document.Window.ScrollTo(0, wbChat.Document.Body.ScrollRectangle.Height);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error scrolling WebBrowser: {ex.Message}");
+                        }
+
+                        scrollTimer.Enabled = false;
+                        scrollTimer.Dispose();
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error appending message to chat: {ex.Message}");
+            }
         }
 
         private void InitializeChat()
         {
-            // Initialize WebBrowser with basic HTML structure
-            string htmlTemplate = "<html><head>" +
-                                "<style>" +
-                                "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 10px; }" +
-                                "</style>" +
-                                "</head><body></body></html>";
-
-            wbChat.DocumentText = htmlTemplate;
-
-            // Load chat history
-            if (_selectedChatRoomId.HasValue)
+            try
             {
-                LoadChatRoomHistory(_selectedChatRoomId.Value);
+                // Initialize WebBrowser with basic HTML structure
+                string htmlTemplate =
+                    "<!DOCTYPE html>" +
+                    "<html><head>" +
+                    "<meta charset='utf-8'>" +
+                    "<style>" +
+                    "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 10px; }" +
+                    "</style>" +
+                    "</head><body></body></html>";
+
+                wbChat.DocumentText = htmlTemplate;
+
+                // Wait for document to load
+                while (wbChat.ReadyState != WebBrowserReadyState.Complete)
+                {
+                    Application.DoEvents();
+                    Thread.Sleep(50);
+                }
+
+                // Load chat history
+                if (_selectedChatRoomId.HasValue)
+                {
+                    LoadChatRoomHistory(_selectedChatRoomId.Value);
+                }
+                else if (_selectedUserId.HasValue)
+                {
+                    LoadDirectMessageHistory(_selectedUserId.Value);
+                }
             }
-            else if (_selectedUserId.HasValue)
+            catch (Exception ex)
             {
-                LoadDirectMessageHistory(_selectedUserId.Value);
+                Console.WriteLine($"Error initializing chat: {ex.Message}");
             }
         }
 
@@ -224,6 +301,25 @@ namespace ChatApp.Forms
 
                 lblChatTitle.Text = chatRoom.Name;
 
+                // Initialize WebBrowser first
+                string htmlTemplate =
+                    "<!DOCTYPE html>" +
+                    "<html><head>" +
+                    "<meta charset='utf-8'>" +
+                    "<style>" +
+                    "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 10px; }" +
+                    "</style>" +
+                    "</head><body></body></html>";
+
+                wbChat.DocumentText = htmlTemplate;
+
+                // Wait for document to load
+                while (wbChat.ReadyState != WebBrowserReadyState.Complete)
+                {
+                    Application.DoEvents();
+                    Thread.Sleep(50);
+                }
+
                 var messages = _dbContext.Messages
                     .Include(m => m.Sender)
                     .Where(m => m.ChatRoomId == chatRoomId)
@@ -231,11 +327,40 @@ namespace ChatApp.Forms
                     .Take(50) // Load last 50 messages for performance
                     .ToList();
 
+                StringBuilder chatContent = new StringBuilder();
                 foreach (var message in messages)
                 {
                     string decryptedContent = EncryptionService.Decrypt(message.EncryptedContent);
                     bool isOwnMessage = message.SenderId == _currentUserId;
-                    AppendMessageToChat(message.Sender.Username, decryptedContent, message.SentAt, isOwnMessage);
+                    string timeStr = message.SentAt.ToString("HH:mm:ss");
+                    string alignment = isOwnMessage ? "right" : "left";
+                    string color = isOwnMessage ? "#DCF8C6" : "#FFFFFF";
+
+                    chatContent.Append($"<div style='text-align: {alignment}; margin: 5px;'>");
+                    chatContent.Append($"<div style='display: inline-block; background-color: {color}; ");
+                    chatContent.Append($"border-radius: 10px; padding: 8px; max-width: 80%; text-align: left;'>");
+                    chatContent.Append($"<div style='font-weight: bold;'>{message.Sender.Username}</div>");
+                    chatContent.Append($"<div>{decryptedContent}</div>");
+                    chatContent.Append($"<div style='font-size: 0.8em; color: #888; text-align: right;'>{timeStr}</div>");
+                    chatContent.Append($"</div></div>");
+                }
+
+                // Set complete HTML at once instead of appending messages one by one
+                wbChat.DocumentText =
+                    "<!DOCTYPE html>" +
+                    "<html><head>" +
+                    "<meta charset='utf-8'>" +
+                    "<style>" +
+                    "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 10px; }" +
+                    "</style>" +
+                    "</head><body>" +
+                    chatContent.ToString() +
+                    "</body></html>";
+
+                // Scroll to bottom
+                if (wbChat.Document != null && wbChat.Document.Window != null)
+                {
+                    wbChat.Document.Window.ScrollTo(0, wbChat.Document.Body.ScrollRectangle.Height);
                 }
             }
             catch (Exception ex)
