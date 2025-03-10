@@ -19,6 +19,7 @@ A Windows Forms application for real-time chat built with .NET 8, SQL Server, an
 - **Entity Framework Core**: ORM for database operations
 - **MQTT Protocol**: For real-time message exchange
 - **BCrypt**: For secure password hashing
+- **Socket**: Realtime Massage
 
 ## Prerequisites
 
